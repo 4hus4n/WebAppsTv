@@ -35,11 +35,18 @@ add_site() {
   sleep 2
   adb shell input text "$1"
   [ -n "$2" ] && shot "$2" 1
+  # Close the on-screen keyboard so the Save button is visible.
+  if adb shell dumpsys input_method | grep -q "mInputShown=true"; then
+    adb shell input keyevent KEYCODE_BACK
+    sleep 1
+  fi
   tap_text "Save"
   sleep 2
 }
 
 adb install -r WebAppsTV.apk
+adb shell wm size
+adb shell settings put secure show_ime_with_hard_keyboard 0
 adb shell am start -n $PKG/.MainActivity
 shot 01_home_empty 5
 
