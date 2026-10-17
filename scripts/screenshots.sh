@@ -35,18 +35,14 @@ add_site() {
   sleep 2
   adb shell input text "$1"
   [ -n "$2" ] && shot "$2" 1
-  # Close the on-screen keyboard so the Save button is visible.
-  if adb shell dumpsys input_method | grep -q "mInputShown=true"; then
-    adb shell input keyevent KEYCODE_BACK
-    sleep 1
-  fi
-  tap_text "Save"
+  adb shell input keyevent KEYCODE_ENTER   # keyboard Enter = Save
   sleep 2
 }
 
 adb install -r WebAppsTV.apk
 adb shell wm size
-adb shell settings put secure show_ime_with_hard_keyboard 0
+# Turn off the on-screen keyboard so typed keys and Enter go straight to the app.
+for ime in $(adb shell ime list -s | tr -d "\r"); do adb shell ime disable "$ime"; done
 adb shell am start -n $PKG/.MainActivity
 shot 01_home_empty 5
 
@@ -67,9 +63,9 @@ adb shell input keyevent KEYCODE_MENU
 shot 04_tile_options 2
 adb shell input keyevent KEYCODE_BACK
 sleep 1
+tap_text "Wikipedia"
 
-# Open Wikipedia and move the remote cursor a bit.
-adb shell input keyevent KEYCODE_DPAD_CENTER
+# Wikipedia is opening; move the remote cursor a bit.
 sleep 15
 for i in 1 2 3 4 5 6; do adb shell input keyevent KEYCODE_DPAD_RIGHT KEYCODE_DPAD_DOWN; done
 shot 05_website_with_cursor 2

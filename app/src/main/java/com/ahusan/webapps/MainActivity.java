@@ -18,6 +18,7 @@ import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.inputmethod.EditorInfo;
 import android.widget.AbsListView;
 import android.widget.AdapterView;
 import android.widget.BaseAdapter;
@@ -240,6 +241,16 @@ public class MainActivity extends Activity {
                 refresh();
                 if (!editing) grid.setSelection(apps.size() - 1);
             });
+            // The TV keyboard covers the buttons, so its Enter/Done key saves too.
+            TextView.OnEditorActionListener saveOnEnter = (tv, actionId, ev) -> {
+                if (ev != null && ev.getAction() != KeyEvent.ACTION_UP) return true;
+                dlg.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+                return true;
+            };
+            url.setImeOptions(EditorInfo.IME_ACTION_DONE);
+            name.setImeOptions(EditorInfo.IME_ACTION_DONE);
+            url.setOnEditorActionListener(saveOnEnter);
+            name.setOnEditorActionListener(saveOnEnter);
             if (!editing) {
                 dlg.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v -> {
                     String u = Store.normalize(url.getText().toString());
