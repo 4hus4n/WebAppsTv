@@ -21,7 +21,8 @@ s = open('ui.xml', encoding='utf-8').read()
 t = sys.argv[1]
 for m in re.finditer(r'<node [^>]*>', s):
     n = m.group(0)
-    if f'text="{t}"' in n:
+    m2 = re.search(r' text="([^"]*)"', n)
+    if m2 and t in m2.group(1):
         x1, y1, x2, y2 = map(int, re.search(r'bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', n).groups())
         print((x1 + x2) // 2, (y1 + y2) // 2)
         break
@@ -50,14 +51,25 @@ add_site wikipedia.org 02_add_website
 add_site youtube.com
 add_site github.com
 add_site bbc.com
+for site in reddit.com twitch.tv imdb.com cnn.com espn.com vimeo.com; do add_site $site; done
 sleep 10   # let site icons download
 
 # Restart so the grid redraws with icons, then focus the first tile.
 adb shell am force-stop $PKG
 adb shell am start -n $PKG/.MainActivity
 sleep 4
-adb shell input keyevent KEYCODE_DPAD_DOWN KEYCODE_DPAD_UP
+adb shell input keyevent KEYCODE_DPAD_RIGHT KEYCODE_DPAD_LEFT
 shot 03_home_with_apps 2
+
+# Scroll the list down: header and Add button stay on top.
+adb shell input keyevent KEYCODE_DPAD_DOWN KEYCODE_DPAD_DOWN
+shot 03b_home_scrolled 2
+
+# Back up to the top row, then UP once more lands on the Add website button.
+adb shell input keyevent KEYCODE_DPAD_UP KEYCODE_DPAD_UP KEYCODE_DPAD_UP
+shot 03c_add_button_focused 2
+adb shell input keyevent KEYCODE_DPAD_DOWN
+sleep 1
 
 adb shell input keyevent KEYCODE_MENU
 shot 04_tile_options 2

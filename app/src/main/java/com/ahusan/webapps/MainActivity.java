@@ -8,6 +8,7 @@ import android.graphics.BitmapFactory;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.StateListDrawable;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -22,6 +23,7 @@ import android.view.inputmethod.EditorInfo;
 import android.widget.AbsListView;
 import android.widget.AdapterView;
 import android.widget.BaseAdapter;
+import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.FrameLayout;
@@ -55,7 +57,8 @@ public class MainActivity extends Activity {
 
     private List<Store.App> apps = new ArrayList<>();
     private GridView grid;
-    private TextView hint;
+    private TextView hint, empty;
+    private Button addBtn;
     private final AppsAdapter adapter = new AppsAdapter();
     private final Map<String, Bitmap> icons = new HashMap<>();
     private final Set<String> fetching = new HashSet<>();
@@ -76,18 +79,52 @@ public class MainActivity extends Activity {
         root.setBackgroundColor(BG);
         root.setPadding(dp(48), dp(32), dp(48), dp(24));
 
+        // Header (stays fixed): title + hint on the left, Add website button on the right.
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(LinearLayout.HORIZONTAL);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        header.setPadding(0, 0, 0, dp(20));
+
+        LinearLayout titles = new LinearLayout(this);
+        titles.setOrientation(LinearLayout.VERTICAL);
+
         TextView title = new TextView(this);
         title.setText("Web Apps");
         title.setTextColor(Color.WHITE);
         title.setTextSize(30);
         title.setTypeface(Typeface.DEFAULT_BOLD);
-        root.addView(title);
+        titles.addView(title);
 
         hint = new TextView(this);
         hint.setTextColor(0xFF8B95A5);
         hint.setTextSize(14);
-        hint.setPadding(0, dp(4), 0, dp(20));
-        root.addView(hint);
+        hint.setPadding(0, dp(4), 0, 0);
+        titles.addView(hint);
+        header.addView(titles, new LinearLayout.LayoutParams(0, -2, 1f));
+
+        addBtn = new Button(this);
+        addBtn.setId(View.generateViewId());
+        addBtn.setText("+  Add website");
+        addBtn.setAllCaps(false);
+        addBtn.setTextSize(16);
+        addBtn.setTypeface(Typeface.DEFAULT_BOLD);
+        addBtn.setTextColor(Color.WHITE);
+        addBtn.setPadding(dp(22), 0, dp(22), 0);
+        addBtn.setStateListAnimator(null);
+        GradientDrawable btnNormal = new GradientDrawable();
+        btnNormal.setColor(CARD_FOCUS);
+        btnNormal.setCornerRadius(dp(14));
+        GradientDrawable btnFocus = new GradientDrawable();
+        btnFocus.setColor(ACCENT);
+        btnFocus.setCornerRadius(dp(14));
+        StateListDrawable btnBg = new StateListDrawable();
+        btnBg.addState(new int[]{android.R.attr.state_focused}, btnFocus);
+        btnBg.addState(new int[]{android.R.attr.state_pressed}, btnFocus);
+        btnBg.addState(new int[]{}, btnNormal);
+        addBtn.setBackground(btnBg);
+        addBtn.setOnClickListener(v -> showEditor(null));
+        header.addView(addBtn, new LinearLayout.LayoutParams(-2, dp(52)));
+        root.addView(header);
 
         grid = new GridView(this);
         grid.setNumColumns(GridView.AUTO_FIT);
@@ -104,12 +141,27 @@ public class MainActivity extends Activity {
         grid.setSelector(sel);
         grid.setDrawSelectorOnTop(true);
         grid.setAdapter(adapter);
-        root.addView(grid, new LinearLayout.LayoutParams(-1, 0, 1f));
+        grid.setId(View.generateViewId());
+        grid.setVerticalFadingEdgeEnabled(true);
+        grid.setFadingEdgeLength(dp(24));
 
-        grid.setOnItemClickListener((p, v, pos, id) -> {
-            if (pos == apps.size()) showEditor(null);
-            else open(apps.get(pos));
-        });
+        // Only this area scrolls; the header above stays put.
+        FrameLayout listArea = new FrameLayout(this);
+        listArea.addView(grid, new FrameLayout.LayoutParams(-1, -1));
+        empty = new TextView(this);
+        empty.setText("No websites yet.\nPress OK on \u201c+ Add website\u201d to add one.");
+        empty.setTextColor(0xFF8B95A5);
+        empty.setTextSize(18);
+        empty.setGravity(Gravity.CENTER);
+        listArea.addView(empty, new FrameLayout.LayoutParams(-1, -1));
+        grid.setEmptyView(empty);
+        root.addView(listArea, new LinearLayout.LayoutParams(-1, 0, 1f));
+
+        // D-pad: UP from the top row goes to the button, DOWN from the button goes into the grid.
+        grid.setNextFocusUpId(addBtn.getId());
+        addBtn.setNextFocusDownId(grid.getId());
+
+        grid.setOnItemClickListener((p, v, pos, id) -> open(apps.get(pos)));
         grid.setOnItemLongClickListener((p, v, pos, id) -> {
             if (pos < apps.size()) showOptions(pos);
             return true;
@@ -127,7 +179,8 @@ public class MainActivity extends Activity {
         });
 
         setContentView(root);
-        grid.requestFocus();
+        if (Store.load(this).isEmpty()) addBtn.requestFocus();
+        else grid.requestFocus();
     }
 
     @Override
@@ -139,9 +192,10 @@ public class MainActivity extends Activity {
     private void refresh() {
         apps = Store.load(this);
         hint.setText(apps.isEmpty()
-                ? "Add any website and it opens like an app. Tip: hold OK on a tile for options."
+                ? "Add any website and it opens like an app."
                 : "OK = open  ·  Hold OK / MENU = edit, move, delete");
         adapter.notifyDataSetChanged();
+        if (apps.isEmpty() && !addBtn.hasFocus()) addBtn.requestFocus();
     }
 
     private void highlight(View v) {
@@ -159,7 +213,7 @@ public class MainActivity extends Activity {
     public boolean onKeyDown(int keyCode, KeyEvent e) {
         if (keyCode == KeyEvent.KEYCODE_MENU) {
             int pos = grid.getSelectedItemPosition();
-            if (pos >= 0 && pos < apps.size()) showOptions(pos);
+            if (grid.hasFocus() && pos >= 0 && pos < apps.size()) showOptions(pos);
             return true;
         }
         return super.onKeyDown(keyCode, e);
@@ -239,7 +293,10 @@ public class MainActivity extends Activity {
                 }
                 dlg.dismiss();
                 refresh();
-                if (!editing) grid.setSelection(apps.size() - 1);
+                if (!editing) {
+                    grid.requestFocus();
+                    grid.setSelection(apps.size() - 1);
+                }
             });
             // The TV keyboard covers the buttons, so its Enter/Done key saves too.
             TextView.OnEditorActionListener saveOnEnter = (tv, actionId, ev) -> {
@@ -375,12 +432,12 @@ public class MainActivity extends Activity {
     private class AppsAdapter extends BaseAdapter {
         @Override
         public int getCount() {
-            return apps.size() + 1;
+            return apps.size();
         }
 
         @Override
         public Object getItem(int pos) {
-            return pos < apps.size() ? apps.get(pos) : null;
+            return apps.get(pos);
         }
 
         @Override
@@ -390,8 +447,6 @@ public class MainActivity extends Activity {
 
         @Override
         public View getView(int pos, View convert, ViewGroup parent) {
-            boolean add = pos == apps.size();
-
             LinearLayout card = new LinearLayout(MainActivity.this);
             card.setOrientation(LinearLayout.VERTICAL);
             card.setGravity(Gravity.CENTER);
@@ -426,16 +481,7 @@ public class MainActivity extends Activity {
             sub.setEllipsize(TextUtils.TruncateAt.END);
             sub.setGravity(Gravity.CENTER);
 
-            if (add) {
-                ib.setColor(Color.TRANSPARENT);
-                ib.setStroke(dp(2), 0xFF4B5563, dp(8), dp(6));
-                letter.setText("+");
-                letter.setTextSize(40);
-                letter.setTextColor(0xFFB8C2D0);
-                name.setText("Add website");
-                sub.setText("Enter any URL");
-                iconBox.addView(letter, new FrameLayout.LayoutParams(-1, -1));
-            } else {
+            {
                 Store.App app = apps.get(pos);
                 Bitmap bm = icon(app);
                 if (bm != null) {
