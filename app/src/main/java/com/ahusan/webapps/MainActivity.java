@@ -140,6 +140,11 @@ public class MainActivity extends Activity {
         sel.setCornerRadius(dp(18));
         grid.setSelector(sel);
         grid.setDrawSelectorOnTop(true);
+        // Only show the tile highlight while the grid has focus (not when the Add button does).
+        grid.setOnFocusChangeListener((v, has) -> {
+            grid.setSelector(has ? sel : new GradientDrawable());
+            highlight(has ? grid.getSelectedView() : null);
+        });
         grid.setAdapter(adapter);
         grid.setId(View.generateViewId());
         grid.setVerticalFadingEdgeEnabled(true);
