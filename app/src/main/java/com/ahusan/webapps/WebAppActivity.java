@@ -473,7 +473,7 @@ public class WebAppActivity extends Activity {
         if (e.getAction() == KeyEvent.ACTION_DOWN) {
             if (e.getRepeatCount() == 0) {
                 backLongDone = false;
-            } else if (!backLongDone && e.getEventTime() - e.getDownTime() >= 600) {
+            } else if (!backLongDone && (e.isLongPress() || e.getEventTime() - e.getDownTime() >= 600)) {
                 backLongDone = true;
                 if (customView == null) showBar(true);
             }
