@@ -2,7 +2,6 @@ package com.ahusan.webapps;
 
 import android.annotation.SuppressLint;
 import android.app.Activity;
-import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.content.res.ColorStateList;
 import android.graphics.Bitmap;
@@ -25,6 +24,7 @@ import android.webkit.CookieManager;
 import android.webkit.PermissionRequest;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
+import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -35,6 +35,9 @@ import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
+
+import java.io.ByteArrayInputStream;
+import java.nio.charset.StandardCharsets;
 
 /** Opens one website full-screen, with a remote-controlled mouse cursor and an options bar. */
 public class WebAppActivity extends Activity {
@@ -63,6 +66,7 @@ public class WebAppActivity extends Activity {
     private float cx, cy;
     private long touchDownTime;
     private boolean backLongDone;
+    private volatile int blockedCount;
 
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final Runnable hideCursor = () -> {
@@ -78,6 +82,7 @@ public class WebAppActivity extends Activity {
     protected void onCreate(Bundle b) {
         super.onCreate(b);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        Blocker.init(this);
 
         app = Store.find(this, getIntent().getStringExtra("id"));
         if (app == null) {
@@ -112,7 +117,8 @@ public class WebAppActivity extends Activity {
 
         setContentView(root);
         setupWeb();
-        web.loadUrl(app.url);
+        String safeStart = Blocker.safeSearch(Uri.parse(app.url));
+        web.loadUrl(safeStart != null ? safeStart : app.url);
 
         root.post(() -> {
             cx = root.getWidth() / 2f;
@@ -165,12 +171,35 @@ public class WebAppActivity extends Activity {
             }
 
             @Override
+            public WebResourceResponse shouldInterceptRequest(WebView v, WebResourceRequest r) {
+                String host = r.getUrl().getHost();
+                if (host == null) return null;
+                Blocker.await();
+                int kind = Blocker.check(host);
+                if (kind == Blocker.OK) return null;
+                blockedCount++;
+                if (r.isForMainFrame()) {
+                    return new WebResourceResponse("text/html", "utf-8", new ByteArrayInputStream(
+                            Blocker.blockedPage(kind, host).getBytes(StandardCharsets.UTF_8)));
+                }
+                return new WebResourceResponse("text/plain", "utf-8", new ByteArrayInputStream(new byte[0]));
+            }
+
+            @Override
             public void onPageStarted(WebView v, String url, Bitmap favicon) {
+                blockedCount = 0;
                 barTitle.setText(Store.host(url));
+                v.evaluateJavascript(Blocker.HIDE_ADS_JS, null);
+            }
+
+            @Override
+            public void onPageCommitVisible(WebView v, String url) {
+                v.evaluateJavascript(Blocker.HIDE_ADS_JS, null);
             }
 
             @Override
             public void onPageFinished(WebView v, String url) {
+                v.evaluateJavascript(Blocker.HIDE_ADS_JS, null);
                 CookieManager.getInstance().flush();
             }
         });
@@ -222,24 +251,26 @@ public class WebAppActivity extends Activity {
     private boolean handleUrl(String url) {
         Uri u = Uri.parse(url);
         String scheme = u.getScheme() == null ? "" : u.getScheme().toLowerCase();
-        if (scheme.equals("http") || scheme.equals("https") || scheme.equals("about")
-                || scheme.equals("data") || scheme.equals("blob") || scheme.equals("javascript")) {
+        if (scheme.equals("http") || scheme.equals("https")) {
+            String safe = Blocker.safeSearch(u);
+            if (safe != null) {
+                web.loadUrl(safe);
+                return true;
+            }
             return false;
         }
-        try {
-            if (scheme.equals("intent")) {
+        if (scheme.equals("about") || scheme.equals("data") || scheme.equals("blob") || scheme.equals("javascript")) {
+            return false;
+        }
+        // Kid-safe: never let a page (or an ad) launch other apps like the Play Store.
+        // For intent:// links, only follow the web fallback address if there is one.
+        if (scheme.equals("intent")) {
+            try {
                 Intent i = Intent.parseUri(url, Intent.URI_INTENT_SCHEME);
                 String fallback = i.getStringExtra("browser_fallback_url");
-                try {
-                    startActivity(i);
-                } catch (ActivityNotFoundException e) {
-                    if (fallback != null) web.loadUrl(fallback);
-                }
-            } else {
-                startActivity(new Intent(Intent.ACTION_VIEW, u));
+                if (fallback != null && fallback.startsWith("http")) web.loadUrl(fallback);
+            } catch (Exception ignored) {
             }
-        } catch (Exception ignored) {
-            // No app can open it (market://, tel:, etc. on a TV) — just stay on the page.
         }
         return true;
     }
@@ -378,6 +409,8 @@ public class WebAppActivity extends Activity {
         if (show == barShown()) return;
         bar.setVisibility(show ? View.VISIBLE : View.GONE);
         if (show) {
+            barTitle.setText(Store.host(web.getUrl() == null ? app.url : web.getUrl())
+                    + "   \uD83D\uDEE1  Ad blocker on \u00B7 " + blockedCount + " blocked on this page");
             LinearLayout row = (LinearLayout) ((HorizontalScrollView) bar.getChildAt(1)).getChildAt(0);
             row.getChildAt(0).requestFocus();
         } else {

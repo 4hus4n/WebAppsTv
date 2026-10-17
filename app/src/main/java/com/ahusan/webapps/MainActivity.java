@@ -73,6 +73,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle b) {
         super.onCreate(b);
+        Blocker.init(this);
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
@@ -282,6 +283,11 @@ public class MainActivity extends Activity {
                     url.setError("Enter a website address");
                     return;
                 }
+                Blocker.await();
+                if (Blocker.checkUrl(u) == Blocker.ADULT) {
+                    url.setError("This website is blocked (not suitable for kids)");
+                    return;
+                }
                 Store.App app = editing ? existing : new Store.App();
                 app.url = u;
                 String n = name.getText().toString().trim();
@@ -318,6 +324,11 @@ public class MainActivity extends Activity {
                     String u = Store.normalize(url.getText().toString());
                     if (u == null) {
                         url.setError("Enter a website address");
+                        return;
+                    }
+                    Blocker.await();
+                    if (Blocker.checkUrl(u) == Blocker.ADULT) {
+                        url.setError("This website is blocked (not suitable for kids)");
                         return;
                     }
                     Intent i = new Intent(this, WebAppActivity.class);

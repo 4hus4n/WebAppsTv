@@ -91,4 +91,33 @@ sleep 1
 for i in $(seq 1 30); do adb shell input keyevent KEYCODE_DPAD_DOWN; done
 shot 07_scrolled 3
 
+# ---- Kid safety ----
+adb shell am force-stop $PKG
+adb shell am start -n $PKG/.MainActivity
+sleep 4
+
+# Adult site can't be added.
+tap_text "Add website"
+sleep 2
+adb shell input text pornhub.com
+adb shell input keyevent KEYCODE_ENTER
+shot 08_adult_site_refused 2
+adb shell input keyevent KEYCODE_BACK
+sleep 1
+
+# An ad server opened directly shows the Blocked page.
+tap_text "Add website"
+sleep 2
+adb shell input text ad.doubleclick.net
+tap_text "Open once"
+shot 09_ad_page_blocked 8
+adb shell input keyevent KEYCODE_BACK
+sleep 2
+
+# A news site with ads: options bar shows how many were blocked.
+tap_text "Bbc"
+sleep 20
+adb shell input keyevent KEYCODE_MENU
+shot 10_bbc_blocked_count 2
+
 ls -la "$OUT"

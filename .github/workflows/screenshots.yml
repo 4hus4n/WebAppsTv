@@ -28,6 +28,7 @@ jobs:
 
       - name: Build APK
         run: |
+          bash scripts/fetch-blocklists.sh
           echo "sdk.dir=$ANDROID_HOME" > local.properties
           gradle assembleRelease --no-daemon
           cp app/build/outputs/apk/release/app-release.apk WebAppsTV.apk

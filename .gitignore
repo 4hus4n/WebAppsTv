@@ -4,3 +4,6 @@ app/build/
 local.properties
 .idea/
 *.iml
+
+# Downloaded at build time
+app/src/main/assets/block_*.txt

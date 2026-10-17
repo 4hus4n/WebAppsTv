@@ -23,6 +23,9 @@ jobs:
         with:
           gradle-version: '8.9'
 
+      - name: Download ad / adult block lists
+        run: bash scripts/fetch-blocklists.sh
+
       - name: Point Gradle at the Android SDK
         run: echo "sdk.dir=$ANDROID_HOME" > local.properties
 
