@@ -1,0 +1,465 @@
+package com.ahusan.webapps;
+
+import android.app.Activity;
+import android.app.AlertDialog;
+import android.content.Intent;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.Color;
+import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
+import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.text.InputType;
+import android.text.TextUtils;
+import android.util.TypedValue;
+import android.view.Gravity;
+import android.view.KeyEvent;
+import android.view.View;
+import android.view.ViewGroup;
+import android.widget.AbsListView;
+import android.widget.AdapterView;
+import android.widget.BaseAdapter;
+import android.widget.CheckBox;
+import android.widget.EditText;
+import android.widget.FrameLayout;
+import android.widget.GridView;
+import android.widget.ImageView;
+import android.widget.LinearLayout;
+import android.widget.TextView;
+
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
+/** Home screen: grid of saved websites + "Add website" tile. */
+public class MainActivity extends Activity {
+
+    static final int BG = 0xFF0E1116;
+    static final int CARD = 0xFF1A1F27;
+    static final int CARD_FOCUS = 0xFF26303D;
+    static final int ACCENT = 0xFF4F9DFF;
+    static final int[] PALETTE = {0xFF3B82F6, 0xFFEF4444, 0xFF10B981, 0xFFF59E0B,
+            0xFF8B5CF6, 0xFFEC4899, 0xFF14B8A6, 0xFFF97316};
+
+    private List<Store.App> apps = new ArrayList<>();
+    private GridView grid;
+    private TextView hint;
+    private final AppsAdapter adapter = new AppsAdapter();
+    private final Map<String, Bitmap> icons = new HashMap<>();
+    private final Set<String> fetching = new HashSet<>();
+    private final Handler ui = new Handler(Looper.getMainLooper());
+    private View selectedView;
+
+    int dp(float v) {
+        return Math.round(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v,
+                getResources().getDisplayMetrics()));
+    }
+
+    @Override
+    protected void onCreate(Bundle b) {
+        super.onCreate(b);
+
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setBackgroundColor(BG);
+        root.setPadding(dp(48), dp(32), dp(48), dp(24));
+
+        TextView title = new TextView(this);
+        title.setText("Web Apps");
+        title.setTextColor(Color.WHITE);
+        title.setTextSize(30);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        root.addView(title);
+
+        hint = new TextView(this);
+        hint.setTextColor(0xFF8B95A5);
+        hint.setTextSize(14);
+        hint.setPadding(0, dp(4), 0, dp(20));
+        root.addView(hint);
+
+        grid = new GridView(this);
+        grid.setNumColumns(GridView.AUTO_FIT);
+        grid.setColumnWidth(dp(180));
+        grid.setStretchMode(GridView.STRETCH_COLUMN_WIDTH);
+        grid.setHorizontalSpacing(dp(18));
+        grid.setVerticalSpacing(dp(18));
+        grid.setPadding(dp(6), dp(6), dp(6), dp(6));
+        grid.setClipToPadding(false);
+        GradientDrawable sel = new GradientDrawable();
+        sel.setColor(Color.TRANSPARENT);
+        sel.setStroke(dp(3), ACCENT);
+        sel.setCornerRadius(dp(18));
+        grid.setSelector(sel);
+        grid.setDrawSelectorOnTop(true);
+        grid.setAdapter(adapter);
+        root.addView(grid, new LinearLayout.LayoutParams(-1, 0, 1f));
+
+        grid.setOnItemClickListener((p, v, pos, id) -> {
+            if (pos == apps.size()) showEditor(null);
+            else open(apps.get(pos));
+        });
+        grid.setOnItemLongClickListener((p, v, pos, id) -> {
+            if (pos < apps.size()) showOptions(pos);
+            return true;
+        });
+        grid.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(AdapterView<?> p, View v, int pos, long id) {
+                highlight(v);
+            }
+
+            @Override
+            public void onNothingSelected(AdapterView<?> p) {
+                highlight(null);
+            }
+        });
+
+        setContentView(root);
+        grid.requestFocus();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        refresh();
+    }
+
+    private void refresh() {
+        apps = Store.load(this);
+        hint.setText(apps.isEmpty()
+                ? "Add any website and it opens like an app. Tip: hold OK on a tile for options."
+                : "OK = open  ·  Hold OK / MENU = edit, move, delete");
+        adapter.notifyDataSetChanged();
+    }
+
+    private void highlight(View v) {
+        if (selectedView != null) setCardColor(selectedView, CARD);
+        selectedView = v;
+        if (v != null) setCardColor(v, CARD_FOCUS);
+    }
+
+    private void setCardColor(View v, int color) {
+        if (v.getBackground() instanceof GradientDrawable)
+            ((GradientDrawable) v.getBackground()).setColor(color);
+    }
+
+    @Override
+    public boolean onKeyDown(int keyCode, KeyEvent e) {
+        if (keyCode == KeyEvent.KEYCODE_MENU) {
+            int pos = grid.getSelectedItemPosition();
+            if (pos >= 0 && pos < apps.size()) showOptions(pos);
+            return true;
+        }
+        return super.onKeyDown(keyCode, e);
+    }
+
+    private void open(Store.App app) {
+        Intent i = new Intent(this, WebAppActivity.class);
+        i.putExtra("id", app.id);
+        startActivity(i);
+    }
+
+    // ---------- Add / edit ----------
+
+    private void showEditor(Store.App existing) {
+        boolean editing = existing != null;
+
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(24), dp(12), dp(24), 0);
+
+        EditText url = new EditText(this);
+        url.setHint("Website address, e.g. youtube.com");
+        url.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
+        url.setSingleLine(true);
+        box.addView(url);
+
+        EditText name = new EditText(this);
+        name.setHint("Name (optional)");
+        name.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_WORDS);
+        name.setSingleLine(true);
+        box.addView(name);
+
+        CheckBox desktop = new CheckBox(this);
+        desktop.setText("Desktop mode (full website instead of mobile version)");
+        box.addView(desktop);
+
+        CheckBox cursor = new CheckBox(this);
+        cursor.setText("Mouse cursor (recommended for most sites)");
+        cursor.setChecked(true);
+        box.addView(cursor);
+
+        if (editing) {
+            url.setText(existing.url);
+            name.setText(existing.name);
+            desktop.setChecked(existing.desktop);
+            cursor.setChecked(existing.cursor);
+        }
+
+        AlertDialog.Builder bld = new AlertDialog.Builder(this)
+                .setTitle(editing ? "Edit web app" : "Add website")
+                .setView(box)
+                .setPositiveButton("Save", null)
+                .setNegativeButton("Cancel", null);
+        if (!editing) bld.setNeutralButton("Open once", null);
+        AlertDialog dlg = bld.create();
+
+        dlg.setOnShowListener(d -> {
+            dlg.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+                String u = Store.normalize(url.getText().toString());
+                if (u == null) {
+                    url.setError("Enter a website address");
+                    return;
+                }
+                Store.App app = editing ? existing : new Store.App();
+                app.url = u;
+                String n = name.getText().toString().trim();
+                app.name = n.isEmpty() ? Store.defaultName(u) : n;
+                app.desktop = desktop.isChecked();
+                app.cursor = cursor.isChecked();
+                if (editing) {
+                    Store.update(this, app);
+                    icons.remove(app.id);
+                    new File(iconDir(), app.id + ".png").delete();
+                } else {
+                    apps.add(app);
+                    Store.save(this, apps);
+                }
+                dlg.dismiss();
+                refresh();
+                if (!editing) grid.setSelection(apps.size() - 1);
+            });
+            if (!editing) {
+                dlg.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v -> {
+                    String u = Store.normalize(url.getText().toString());
+                    if (u == null) {
+                        url.setError("Enter a website address");
+                        return;
+                    }
+                    Intent i = new Intent(this, WebAppActivity.class);
+                    i.putExtra("url", u);
+                    i.putExtra("desktop", desktop.isChecked());
+                    i.putExtra("cursor", cursor.isChecked());
+                    dlg.dismiss();
+                    startActivity(i);
+                });
+            }
+            url.requestFocus();
+        });
+        dlg.show();
+    }
+
+    private void showOptions(int pos) {
+        Store.App app = apps.get(pos);
+        String[] items = {"Open", "Edit", "Move left", "Move right", "Delete"};
+        new AlertDialog.Builder(this)
+                .setTitle(app.name)
+                .setItems(items, (d, which) -> {
+                    switch (which) {
+                        case 0:
+                            open(app);
+                            break;
+                        case 1:
+                            showEditor(app);
+                            break;
+                        case 2:
+                            move(pos, pos - 1);
+                            break;
+                        case 3:
+                            move(pos, pos + 1);
+                            break;
+                        case 4:
+                            new AlertDialog.Builder(this)
+                                    .setMessage("Delete \"" + app.name + "\"?")
+                                    .setPositiveButton("Delete", (d2, w2) -> {
+                                        apps.remove(pos);
+                                        Store.save(this, apps);
+                                        new File(iconDir(), app.id + ".png").delete();
+                                        refresh();
+                                    })
+                                    .setNegativeButton("Cancel", null)
+                                    .show();
+                            break;
+                    }
+                })
+                .show();
+    }
+
+    private void move(int from, int to) {
+        if (to < 0 || to >= apps.size()) return;
+        Store.App a = apps.remove(from);
+        apps.add(to, a);
+        Store.save(this, apps);
+        adapter.notifyDataSetChanged();
+        grid.setSelection(to);
+    }
+
+    // ---------- Site icons ----------
+
+    private File iconDir() {
+        File f = new File(getFilesDir(), "icons");
+        if (!f.exists()) f.mkdirs();
+        return f;
+    }
+
+    private Bitmap icon(Store.App app) {
+        if (icons.containsKey(app.id)) return icons.get(app.id);
+        File f = new File(iconDir(), app.id + ".png");
+        if (f.exists()) {
+            Bitmap bm = BitmapFactory.decodeFile(f.getAbsolutePath());
+            icons.put(app.id, bm);
+            return bm;
+        }
+        if (fetching.add(app.id)) {
+            String host = Store.host(app.url);
+            String id = app.id;
+            new Thread(() -> {
+                Bitmap bm = null;
+                try {
+                    HttpURLConnection c = (HttpURLConnection) new URL(
+                            "https://www.google.com/s2/favicons?sz=128&domain=" + host).openConnection();
+                    c.setConnectTimeout(8000);
+                    c.setReadTimeout(8000);
+                    try (InputStream in = c.getInputStream()) {
+                        ByteArrayOutputStream out = new ByteArrayOutputStream();
+                        byte[] buf = new byte[8192];
+                        int n;
+                        while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+                        byte[] data = out.toByteArray();
+                        bm = BitmapFactory.decodeByteArray(data, 0, data.length);
+                    }
+                    // Google returns a tiny generic globe when a site has no icon; ignore those.
+                    if (bm != null && bm.getWidth() >= 32) {
+                        try (FileOutputStream fo = new FileOutputStream(new File(iconDir(), id + ".png"))) {
+                            bm.compress(Bitmap.CompressFormat.PNG, 100, fo);
+                        }
+                    } else {
+                        bm = null;
+                    }
+                } catch (Exception ignored) {
+                }
+                Bitmap result = bm;
+                ui.post(() -> {
+                    icons.put(id, result);
+                    adapter.notifyDataSetChanged();
+                });
+            }).start();
+        }
+        return null;
+    }
+
+    // ---------- Grid adapter ----------
+
+    private class AppsAdapter extends BaseAdapter {
+        @Override
+        public int getCount() {
+            return apps.size() + 1;
+        }
+
+        @Override
+        public Object getItem(int pos) {
+            return pos < apps.size() ? apps.get(pos) : null;
+        }
+
+        @Override
+        public long getItemId(int pos) {
+            return pos;
+        }
+
+        @Override
+        public View getView(int pos, View convert, ViewGroup parent) {
+            boolean add = pos == apps.size();
+
+            LinearLayout card = new LinearLayout(MainActivity.this);
+            card.setOrientation(LinearLayout.VERTICAL);
+            card.setGravity(Gravity.CENTER);
+            card.setPadding(dp(12), dp(16), dp(12), dp(14));
+            GradientDrawable bg = new GradientDrawable();
+            bg.setColor(view_isSelected(pos) ? CARD_FOCUS : CARD);
+            bg.setCornerRadius(dp(18));
+            card.setBackground(bg);
+            card.setLayoutParams(new AbsListView.LayoutParams(-1, dp(180)));
+
+            FrameLayout iconBox = new FrameLayout(MainActivity.this);
+            GradientDrawable ib = new GradientDrawable();
+            ib.setCornerRadius(dp(20));
+            TextView letter = new TextView(MainActivity.this);
+            letter.setGravity(Gravity.CENTER);
+            letter.setTextColor(Color.WHITE);
+            letter.setTypeface(Typeface.DEFAULT_BOLD);
+
+            TextView name = new TextView(MainActivity.this);
+            name.setTextColor(Color.WHITE);
+            name.setTextSize(16);
+            name.setTypeface(Typeface.DEFAULT_BOLD);
+            name.setSingleLine(true);
+            name.setEllipsize(TextUtils.TruncateAt.END);
+            name.setGravity(Gravity.CENTER);
+            name.setPadding(0, dp(12), 0, 0);
+
+            TextView sub = new TextView(MainActivity.this);
+            sub.setTextColor(0xFF8B95A5);
+            sub.setTextSize(12);
+            sub.setSingleLine(true);
+            sub.setEllipsize(TextUtils.TruncateAt.END);
+            sub.setGravity(Gravity.CENTER);
+
+            if (add) {
+                ib.setColor(Color.TRANSPARENT);
+                ib.setStroke(dp(2), 0xFF4B5563, dp(8), dp(6));
+                letter.setText("+");
+                letter.setTextSize(40);
+                letter.setTextColor(0xFFB8C2D0);
+                name.setText("Add website");
+                sub.setText("Enter any URL");
+                iconBox.addView(letter, new FrameLayout.LayoutParams(-1, -1));
+            } else {
+                Store.App app = apps.get(pos);
+                Bitmap bm = icon(app);
+                if (bm != null) {
+                    ib.setColor(Color.WHITE);
+                    ImageView iv = new ImageView(MainActivity.this);
+                    iv.setImageBitmap(bm);
+                    iv.setScaleType(ImageView.ScaleType.FIT_CENTER);
+                    iv.setPadding(dp(14), dp(14), dp(14), dp(14));
+                    iconBox.addView(iv, new FrameLayout.LayoutParams(-1, -1));
+                } else {
+                    ib.setColor(PALETTE[Math.abs(app.name.hashCode()) % PALETTE.length]);
+                    letter.setText(app.name.isEmpty() ? "?" : app.name.substring(0, 1).toUpperCase());
+                    letter.setTextSize(36);
+                    iconBox.addView(letter, new FrameLayout.LayoutParams(-1, -1));
+                }
+                name.setText(app.name);
+                sub.setText(Store.host(app.url) + (app.desktop ? "  ·  desktop" : ""));
+            }
+            iconBox.setBackground(ib);
+
+            card.addView(iconBox, new LinearLayout.LayoutParams(dp(84), dp(84)));
+            card.addView(name, new LinearLayout.LayoutParams(-1, -2));
+            card.addView(sub, new LinearLayout.LayoutParams(-1, -2));
+            return card;
+        }
+
+        private boolean view_isSelected(int pos) {
+            return grid != null && grid.hasFocus() && grid.getSelectedItemPosition() == pos
+                    && !grid.isInTouchMode();
+        }
+    }
+
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (hasFocus && grid.getSelectedView() != null) highlight(grid.getSelectedView());
+    }
+}

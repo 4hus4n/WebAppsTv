@@ -1,0 +1,38 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.ahusan.webapps'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'com.ahusan.webapps'
+        minSdk 21
+        targetSdk 34
+        versionCode 1
+        versionName '1.0'
+    }
+
+    // Fixed key committed to the repo so every new build installs over the old one.
+    signingConfigs {
+        release {
+            storeFile file('webapps.jks')
+            storePassword 'webapps123'
+            keyAlias 'webapps'
+            keyPassword 'webapps123'
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.release
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
