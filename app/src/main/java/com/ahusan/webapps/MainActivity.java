@@ -112,8 +112,11 @@ public class MainActivity extends Activity {
 
         // Update button: shows the version; turns green when a new version is on GitHub.
         updateBtn = headerButton();
+        // Smaller pill than Add website.
+        updateBtn.setTextSize(13);
+        updateBtn.setPadding(dp(14), 0, dp(14), 0);
         updateBtn.setOnClickListener(v -> onUpdateClicked());
-        LinearLayout.LayoutParams ulp = new LinearLayout.LayoutParams(-2, dp(52));
+        LinearLayout.LayoutParams ulp = new LinearLayout.LayoutParams(-2, dp(36));
         ulp.rightMargin = dp(12);
         header.addView(updateBtn, ulp);
         showUpdateState(Updater.cached(this));
@@ -243,7 +246,7 @@ public class MainActivity extends Activity {
     private void showUpdateState(Updater.Release r) {
         pendingUpdate = r;
         if (r != null) {
-            updateBtn.setText("\u2B06  Update to " + r.tag);
+            updateBtn.setText("\u2B06  Update available");
             styleButton(updateBtn, 0xFF16A34A);
         } else {
             updateBtn.setText("v" + Updater.currentVersionName(this));

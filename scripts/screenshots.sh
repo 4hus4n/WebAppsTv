@@ -130,7 +130,9 @@ adb shell am force-stop $PKG
 adb shell am start -n $PKG/.MainActivity
 sleep 8
 shot 11_update_button 1
-tap_text "Update to"
+adb shell input keyevent KEYCODE_DPAD_UP KEYCODE_DPAD_UP KEYCODE_DPAD_LEFT
+shot 11b_update_button_focused 1
+tap_text "Update available"
 shot 12_update_dialog 2
 tap_text "Download & install"
 shot 13_downloading 2
