@@ -115,6 +115,10 @@ public class MainActivity extends Activity {
         // Smaller pill than Add website.
         updateBtn.setTextSize(13);
         updateBtn.setPadding(dp(14), 0, dp(14), 0);
+        updateBtn.setMinWidth(0);
+        updateBtn.setMinimumWidth(0);
+        updateBtn.setMinHeight(0);
+        updateBtn.setMinimumHeight(0);
         updateBtn.setOnClickListener(v -> onUpdateClicked());
         LinearLayout.LayoutParams ulp = new LinearLayout.LayoutParams(-2, dp(36));
         ulp.rightMargin = dp(12);
