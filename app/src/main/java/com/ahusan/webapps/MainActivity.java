@@ -31,6 +31,10 @@ import android.widget.GridView;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import android.widget.Toast;
+import android.widget.ProgressBar;
+import android.provider.Settings;
+import android.net.Uri;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -43,6 +47,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Locale;
 import java.util.Set;
 
 /** Home screen: grid of saved websites + "Add website" tile. */
@@ -58,7 +63,9 @@ public class MainActivity extends Activity {
     private List<Store.App> apps = new ArrayList<>();
     private GridView grid;
     private TextView hint, empty;
-    private Button addBtn;
+    private Button addBtn, updateBtn;
+    private Updater.Release pendingUpdate;
+    private boolean checking;
     private final AppsAdapter adapter = new AppsAdapter();
     private final Map<String, Bitmap> icons = new HashMap<>();
     private final Set<String> fetching = new HashSet<>();
@@ -102,6 +109,14 @@ public class MainActivity extends Activity {
         hint.setPadding(0, dp(4), 0, 0);
         titles.addView(hint);
         header.addView(titles, new LinearLayout.LayoutParams(0, -2, 1f));
+
+        // Update button: shows the version; turns green when a new version is on GitHub.
+        updateBtn = headerButton();
+        updateBtn.setOnClickListener(v -> onUpdateClicked());
+        LinearLayout.LayoutParams ulp = new LinearLayout.LayoutParams(-2, dp(52));
+        ulp.rightMargin = dp(12);
+        header.addView(updateBtn, ulp);
+        showUpdateState(Updater.cached(this));
 
         addBtn = new Button(this);
         addBtn.setId(View.generateViewId());
@@ -193,6 +208,168 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         refresh();
+        showUpdateState(Updater.cached(this));
+        if (Updater.dueForAutoCheck(this)) checkForUpdate(false);
+    }
+
+    // ---------- Updates ----------
+
+    private Button headerButton() {
+        Button b = new Button(this);
+        b.setAllCaps(false);
+        b.setTextSize(16);
+        b.setTypeface(Typeface.DEFAULT_BOLD);
+        b.setTextColor(Color.WHITE);
+        b.setPadding(dp(22), 0, dp(22), 0);
+        b.setStateListAnimator(null);
+        return b;
+    }
+
+    private void styleButton(Button b, int normalColor) {
+        GradientDrawable n = new GradientDrawable();
+        n.setColor(normalColor);
+        n.setCornerRadius(dp(14));
+        GradientDrawable f = new GradientDrawable();
+        f.setColor(ACCENT);
+        f.setCornerRadius(dp(14));
+        f.setStroke(dp(2), Color.WHITE);
+        StateListDrawable sl = new StateListDrawable();
+        sl.addState(new int[]{android.R.attr.state_focused}, f);
+        sl.addState(new int[]{android.R.attr.state_pressed}, f);
+        sl.addState(new int[]{}, n);
+        b.setBackground(sl);
+    }
+
+    private void showUpdateState(Updater.Release r) {
+        pendingUpdate = r;
+        if (r != null) {
+            updateBtn.setText("\u2B06  Update to " + r.tag);
+            styleButton(updateBtn, 0xFF16A34A);
+        } else {
+            updateBtn.setText("v" + Updater.currentVersionName(this));
+            styleButton(updateBtn, CARD);
+        }
+    }
+
+    private void checkForUpdate(boolean manual) {
+        if (checking) return;
+        checking = true;
+        if (manual) updateBtn.setText("Checking\u2026");
+        new Thread(() -> {
+            Updater.Release r = null;
+            String error = null;
+            try {
+                r = Updater.check(this);
+            } catch (Exception e) {
+                error = e.getMessage();
+            }
+            Updater.Release found = r;
+            String err = error;
+            ui.post(() -> {
+                checking = false;
+                if (isFinishing()) return;
+                showUpdateState(found != null ? found : Updater.cached(this));
+                if (!manual) return;
+                if (err != null) {
+                    new AlertDialog.Builder(this).setTitle("Couldn't check for updates")
+                            .setMessage("Check the internet connection and try again.\n\n" + err)
+                            .setPositiveButton("OK", null).show();
+                } else if (found == null) {
+                    new AlertDialog.Builder(this).setTitle("Up to date")
+                            .setMessage("You have the latest version (v" + Updater.currentVersionName(this) + ").")
+                            .setPositiveButton("OK", null).show();
+                } else {
+                    confirmUpdate(found);
+                }
+            });
+        }).start();
+    }
+
+    private void onUpdateClicked() {
+        if (pendingUpdate != null) confirmUpdate(pendingUpdate);
+        else checkForUpdate(true);
+    }
+
+    private void confirmUpdate(Updater.Release r) {
+        String notes = r.notes == null || r.notes.isEmpty() ? "" : "\n\nWhat's new:\n" + r.notes;
+        String size = r.size > 0 ? String.format(Locale.US, " (%.1f MB)", r.size / 1048576.0) : "";
+        new AlertDialog.Builder(this)
+                .setTitle("Update available")
+                .setMessage("Version " + r.tag + size + " is ready.\nYou have v"
+                        + Updater.currentVersionName(this) + "." + notes)
+                .setPositiveButton("Download & install", (d, w) -> startUpdate(r))
+                .setNegativeButton("Later", null)
+                .show();
+    }
+
+    private void startUpdate(Updater.Release r) {
+        if (!Updater.canInstall(this)) {
+            new AlertDialog.Builder(this)
+                    .setTitle("Allow updates")
+                    .setMessage("To install updates, allow \"Web Apps\" to install apps.\n\n"
+                            + "On the next screen turn it ON, then press BACK and choose Download & install again.")
+                    .setPositiveButton("Open settings", (d, w) -> {
+                        try {
+                            startActivity(new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                                    Uri.parse("package:" + getPackageName())));
+                        } catch (Exception e) {
+                            // Some TVs don't have this screen; the installer will ask instead.
+                            doDownload(r);
+                        }
+                    })
+                    .setNegativeButton("Cancel", null)
+                    .show();
+            return;
+        }
+        doDownload(r);
+    }
+
+    private void doDownload(Updater.Release r) {
+        ProgressBar bar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+        bar.setMax(1000);
+        bar.setProgressTintList(android.content.res.ColorStateList.valueOf(ACCENT));
+        TextView label = new TextView(this);
+        label.setTextColor(0xFFB8C2D0);
+        label.setTextSize(15);
+        label.setText("Starting download\u2026");
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(24), dp(16), dp(24), dp(8));
+        box.addView(bar, new LinearLayout.LayoutParams(-1, dp(10)));
+        box.addView(label);
+        AlertDialog dlg = new AlertDialog.Builder(this)
+                .setTitle("Downloading " + r.tag)
+                .setView(box)
+                .setCancelable(false)
+                .show();
+
+        new Thread(() -> {
+            String error = null;
+            try {
+                Updater.downloadAndInstall(this, r, (done, total) -> ui.post(() -> {
+                    if (total > 0) {
+                        bar.setProgress((int) (done * 1000 / total));
+                        label.setText(String.format(Locale.US, "%.1f of %.1f MB",
+                                done / 1048576.0, total / 1048576.0));
+                    } else {
+                        bar.setIndeterminate(true);
+                        label.setText(String.format(Locale.US, "%.1f MB", done / 1048576.0));
+                    }
+                }));
+            } catch (Exception e) {
+                error = e.getMessage();
+            }
+            String err = error;
+            ui.post(() -> {
+                if (dlg.isShowing()) dlg.dismiss();
+                if (err != null) {
+                    new AlertDialog.Builder(this).setTitle("Update failed")
+                            .setMessage(err).setPositiveButton("OK", null).show();
+                } else {
+                    Toast.makeText(this, "Installing\u2026 confirm on the next screen", Toast.LENGTH_LONG).show();
+                }
+            });
+        }).start();
     }
 
     private void refresh() {

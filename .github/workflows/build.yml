@@ -30,6 +30,8 @@ jobs:
         run: echo "sdk.dir=$ANDROID_HOME" > local.properties
 
       - name: Build release APK
+        env:
+          APP_VERSION: ${{ github.run_number }}
         run: gradle assembleRelease --no-daemon
 
       - name: Rename APK
@@ -46,3 +48,4 @@ jobs:
           tag_name: v1.0.${{ github.run_number }}
           name: Web Apps TV v1.0.${{ github.run_number }}
           files: WebAppsTV.apk
+          body: ${{ github.event.head_commit.message }}

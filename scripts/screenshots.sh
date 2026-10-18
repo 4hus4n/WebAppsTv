@@ -120,4 +120,24 @@ sleep 20
 adb shell input keyevent KEYCODE_MENU
 shot 10_bbc_blocked_count 2
 
+# ---- In-app update (this test build is version 1, so GitHub's latest release is newer) ----
+adb shell appops set $PKG REQUEST_INSTALL_PACKAGES allow
+adb shell am force-stop $PKG
+adb shell am start -n $PKG/.MainActivity
+sleep 8
+shot 11_update_button 1
+tap_text "Update to"
+shot 12_update_dialog 2
+tap_text "Download"
+shot 13_downloading 2
+sleep 25
+shot 14_install_confirm 1
+tap_text "Update"
+tap_text "Install"
+sleep 20
+adb shell dumpsys package $PKG | grep -m2 -E "versionCode|versionName"
+adb shell am start -n $PKG/.MainActivity
+sleep 6
+shot 15_after_update 1
+
 ls -la "$OUT"

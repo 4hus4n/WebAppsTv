@@ -10,8 +10,10 @@ android {
         applicationId 'com.ahusan.webapps'
         minSdk 21
         targetSdk 34
-        versionCode 1
-        versionName '1.0'
+        // CI sets APP_VERSION to the build number, matching the release tag v1.0.N
+        def buildNo = (System.getenv('APP_VERSION') ?: '1').toInteger()
+        versionCode buildNo
+        versionName "1.0.${buildNo}"
     }
 
     // Fixed key committed to the repo so every new build installs over the old one.
