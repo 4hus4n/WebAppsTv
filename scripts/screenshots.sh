@@ -16,16 +16,20 @@ tap_text() {
   adb pull /sdcard/ui.xml ui.xml > /dev/null
   local xy
   xy=$(python3 - "$1" <<'EOF'
-import re, sys
+import re, sys, html
 s = open('ui.xml', encoding='utf-8').read()
-t = sys.argv[1]
+t = sys.argv[1].lower()
+nodes = []
 for m in re.finditer(r'<node [^>]*>', s):
     n = m.group(0)
     m2 = re.search(r' text="([^"]*)"', n)
-    if m2 and t.lower() in m2.group(1).lower():
-        x1, y1, x2, y2 = map(int, re.search(r'bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', n).groups())
-        print((x1 + x2) // 2, (y1 + y2) // 2)
-        break
+    if m2:
+        nodes.append((html.unescape(m2.group(1)).lower(), n))
+# Prefer an exact match (buttons), then fall back to "contains".
+pick = next((n for txt, n in nodes if txt == t), None) or next((n for txt, n in nodes if t in txt), None)
+if pick:
+    x1, y1, x2, y2 = map(int, re.search(r'bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', pick).groups())
+    print((x1 + x2) // 2, (y1 + y2) // 2)
 EOF
 )
   if [ -n "$xy" ]; then adb shell input tap $xy; else echo "not found: $1"; fi
@@ -128,7 +132,7 @@ sleep 8
 shot 11_update_button 1
 tap_text "Update to"
 shot 12_update_dialog 2
-tap_text "Download"
+tap_text "Download & install"
 shot 13_downloading 2
 sleep 25
 shot 14_install_confirm 1
